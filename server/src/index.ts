@@ -377,7 +377,11 @@ export function createStatusServer(state: ResetState): Server {
     }
     if (request.method === "GET" && path === "/status") {
       const status = state.status();
-      sendJson(response, status.checkedAt === null ? 503 : 200, status.checkedAt === null ? { error: "Not ready" } : status);
+      sendJson(
+        response,
+        status.checkedAt === null ? 503 : 200,
+        status.checkedAt === null ? { error: "Not ready" } : { ...status, sleeping: isSanFranciscoQuietHour(new Date()) },
+      );
       return;
     }
     sendJson(response, 404, { error: "Not found" });

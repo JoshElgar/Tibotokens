@@ -38,6 +38,7 @@ private struct StatusResponse: Decodable {
     let tweetCreatedAt: String?
     let checkedAt: String?
     let resetLikelihood: Int?
+    let sleeping: Bool?
 }
 
 @MainActor
@@ -81,7 +82,10 @@ private final class StatusModel: ObservableObject {
               let date = Self.parseDate(rawDate)
         else { return "Not checked yet" }
         let relative = Self.relativeDateFormatter.localizedString(for: date, relativeTo: now)
-        return "Last checked \(relative)"
+        let sleeping = response?.sleeping == true
+            ? " — Tibo is sleeping - next check at 7am SF time"
+            : ""
+        return "Last checked \(relative)\(sleeping)"
     }
 
     func postCreatedText(relativeTo now: Date) -> String? {

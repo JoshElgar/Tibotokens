@@ -452,7 +452,10 @@ test("health and status endpoints return no-store JSON", async () => {
     state.markChecked(baseTime);
     const status = await fetch(`http://127.0.0.1:${address.port}/status`);
     assert.equal(status.status, 200);
-    assert.deepEqual(await status.json(), {
+    const statusBody = await status.json() as Record<string, unknown>;
+    assert.equal(typeof statusBody.sleeping, "boolean");
+    delete statusBody.sleeping;
+    assert.deepEqual(statusBody, {
       status: "none",
       summary: "No reset expected",
       expectedAt: null,

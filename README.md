@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/tibotokens_readme_logo.png" width="144" alt="Tibotokens logo">
+  <img src="assets/tibotokens_readme_logo.png" width="128" alt="Tibotokens logo">
 </p>
 
 <h1 align="center">Tibotokens</h1>

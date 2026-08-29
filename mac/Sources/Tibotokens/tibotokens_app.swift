@@ -318,6 +318,7 @@ private final class StatusModel: ObservableObject {
 
 private struct MenuBarLabel: View {
     let phase: ResetPhase
+    let resetLikelihood: Int
 
     private static let templateIcon: NSImage? = {
         guard let url = Bundle.main.url(forResource: "tibo_menu_icon", withExtension: "png"),
@@ -335,17 +336,23 @@ private struct MenuBarLabel: View {
                     Text(text)
                 } icon: {
                     Image(nsImage: image)
+                        .renderingMode(.template)
+                        .foregroundStyle(resetLikelihood > 50 ? Color.green : Color.primary)
                 }
                 .accessibilityLabel(phase.statusText)
             } else {
                 Image(nsImage: image)
+                    .renderingMode(.template)
+                    .foregroundStyle(resetLikelihood > 50 ? Color.green : Color.primary)
                     .accessibilityLabel(phase.statusText)
             }
         } else if let text = phase.menuBarText {
             Label(text, systemImage: "person.crop.circle")
+                .foregroundStyle(resetLikelihood > 50 ? Color.green : Color.primary)
                 .accessibilityLabel(phase.statusText)
         } else {
             Image(systemName: "person.crop.circle")
+                .foregroundStyle(resetLikelihood > 50 ? Color.green : Color.primary)
                 .accessibilityLabel(phase.statusText)
         }
     }
@@ -424,7 +431,7 @@ private struct TibotokensApp: App {
                     Task { await model.refresh() }
                 }
         } label: {
-            MenuBarLabel(phase: model.phase)
+            MenuBarLabel(phase: model.phase, resetLikelihood: model.resetLikelihood)
                 .task { model.start() }
         }
         .menuBarExtraStyle(.menu)

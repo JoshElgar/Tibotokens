@@ -7,6 +7,7 @@ import {
   ResetMonitor,
   XClient,
   createStatusServer,
+  isSanFranciscoQuietHour,
   loadConfig,
   type TimelineItem,
 } from "../src/index.js";
@@ -49,8 +50,17 @@ test("config requires only secrets and keeps public settings in code", () => {
 
   assert.equal(config.xUsername, "thsottiaux");
   assert.equal(config.openRouterModel, "openai/gpt-5.6-sol");
-  assert.equal(config.pollIntervalMs, 3_600_000);
+  assert.equal(config.pollIntervalMs, 7_200_000);
   assert.equal(config.port, 3000);
+});
+
+test("quiet hours follow San Francisco local time across daylight saving", () => {
+  assert.equal(isSanFranciscoQuietHour(new Date("2026-08-29T07:59:00Z")), false);
+  assert.equal(isSanFranciscoQuietHour(new Date("2026-08-29T08:00:00Z")), true);
+  assert.equal(isSanFranciscoQuietHour(new Date("2026-08-29T13:59:00Z")), true);
+  assert.equal(isSanFranciscoQuietHour(new Date("2026-08-29T14:00:00Z")), false);
+  assert.equal(isSanFranciscoQuietHour(new Date("2026-01-15T09:00:00Z")), true);
+  assert.equal(isSanFranciscoQuietHour(new Date("2026-01-15T15:00:00Z")), false);
 });
 
 test("strict classification parsing accepts the schema and rejects bad invariants", () => {

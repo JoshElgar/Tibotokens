@@ -395,7 +395,17 @@ export interface Config {
 
 const xUsername = "thsottiaux";
 const openRouterModel = "openai/gpt-5.6-sol";
-const pollIntervalMs = 60 * 60 * 1000;
+const pollIntervalMs = 2 * 60 * 60 * 1000;
+const sanFranciscoHour = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  hour: "numeric",
+  hourCycle: "h23",
+});
+
+export function isSanFranciscoQuietHour(at: Date): boolean {
+  const hour = Number(sanFranciscoHour.format(at));
+  return hour >= 1 && hour < 7;
+}
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
@@ -433,6 +443,10 @@ export async function start(config = loadConfig()): Promise<void> {
   const runPoll = async (): Promise<void> => {
     timer = undefined;
     try {
+      if (isSanFranciscoQuietHour(new Date())) {
+        console.log("Poll skipped during San Francisco quiet hours");
+        return;
+      }
       const startTime = caughtUp ? undefined : new Date(Date.now() - 72 * 60 * 60 * 1000);
       await monitor.poll(startTime);
       caughtUp = true;

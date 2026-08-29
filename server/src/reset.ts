@@ -40,6 +40,7 @@ export interface PublicStatus {
   expectedAt: string | null;
   tweetId: string | null;
   tweetText: string | null;
+  tweetCreatedAt: string | null;
   tweetUrl: string | null;
   resetLikelihood: number;
   confidence: number | null;
@@ -240,6 +241,7 @@ export class ResetState {
         expectedAt: null,
         tweetId: null,
         tweetText: null,
+        tweetCreatedAt: null,
         tweetUrl: null,
         resetLikelihood: 0,
         confidence: null,
@@ -253,6 +255,7 @@ export class ResetState {
       expectedAt: this.current.expectedAt?.toISOString() ?? null,
       tweetId: this.current.post.id,
       tweetText: postText(this.current.post),
+      tweetCreatedAt: this.current.createdAt.toISOString(),
       tweetUrl: `https://x.com/${encodeURIComponent(this.username)}/status/${this.current.post.id}`,
       resetLikelihood: this.current.resetLikelihood,
       confidence: this.current.confidence,

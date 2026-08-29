@@ -128,6 +128,7 @@ test("state moves through reset phases and a relevant none clears it", () => {
   const state = new ResetState("thsottiaux");
   state.apply(post("100", "A Codex reset might happen"), classification("possible"), baseTime);
   assert.equal(state.status(baseTime).status, "possible");
+  assert.equal(state.status(baseTime).tweetCreatedAt, baseTime.toISOString());
 
   state.apply(post("101", "Codex reset in an hour"), classification("scheduled"), baseTime);
   assert.equal(state.status(baseTime).status, "scheduled");
@@ -426,6 +427,7 @@ test("health and status endpoints return no-store JSON", async () => {
       expectedAt: null,
       tweetId: null,
       tweetText: null,
+      tweetCreatedAt: null,
       tweetUrl: null,
       resetLikelihood: 0,
       confidence: null,

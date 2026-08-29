@@ -35,6 +35,7 @@ private struct StatusResponse: Decodable {
     let summary: String
     let tweetId: String?
     let tweetText: String?
+    let tweetCreatedAt: String?
     let checkedAt: String?
     let resetLikelihood: Int?
 }
@@ -81,6 +82,15 @@ private final class StatusModel: ObservableObject {
         else { return "Not checked yet" }
         let relative = Self.relativeDateFormatter.localizedString(for: date, relativeTo: now)
         return "Last checked \(relative)"
+    }
+
+    func postCreatedText(relativeTo now: Date) -> String? {
+        guard let rawDate = response?.tweetCreatedAt,
+              let date = Self.parseDate(rawDate)
+        else { return nil }
+        let absolute = Self.utcPostDateFormatter.string(from: date)
+        let relative = Self.relativeDateFormatter.localizedString(for: date, relativeTo: now)
+        return "\(absolute) (UTC) - \(relative)"
     }
 
     func start() {
@@ -222,6 +232,14 @@ private final class StatusModel: ObservableObject {
         formatter.unitsStyle = .full
         return formatter
     }()
+
+    private static let utcPostDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "dd/MM h:mma"
+        return formatter
+    }()
 }
 
 private struct MenuBarLabel: View {
@@ -284,8 +302,21 @@ private struct MenuContent: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         if let postURL = model.postURL {
-            Button("Open post") {
+            Button {
                 NSWorkspace.shared.open(postURL)
+            } label: {
+                HStack(spacing: 8) {
+                    Text("Open post")
+                    Spacer()
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        if let created = model.postCreatedText(relativeTo: context.date) {
+                            Text(created)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+                }
+                .frame(width: 320)
             }
         }
         Divider()

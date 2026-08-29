@@ -45,7 +45,6 @@ test("config requires only secrets and keeps public settings in code", () => {
   const config = loadConfig({
     X_BEARER_TOKEN: "x-token",
     OPENROUTER_API_KEY: "openrouter-key",
-    MANUAL_CHECK_TOKEN: "12345678901234567890123456789012",
   });
 
   assert.equal(config.xUsername, "thsottiaux");
@@ -370,11 +369,14 @@ test("monitor never consumes a post during a classifier transport outage", async
   assert.equal(state.status(baseTime).status, "none");
 });
 
-test("manual check scans the selected window without rewinding the polling bookmark", async () => {
-  const seenStartTimes: Array<Date | undefined> = [];
+test("startup catch-up scans three days, then resumes from the newest post", async () => {
+  const requests: Array<{ sinceId: string | null; startTime?: Date }> = [];
   const timeline = {
-    async fetchTimeline(_sinceId: string | null, startTime?: Date): Promise<TimelineItem[]> {
-      seenStartTimes.push(startTime);
+    async fetchTimeline(sinceId: string | null, startTime?: Date): Promise<TimelineItem[]> {
+      requests.push({ sinceId, startTime });
+      if (!startTime) {
+        return [];
+      }
       return [
         { post: post("800", "Codex usage reset might happen tonight"), references: [] },
         { post: post("801", "Codex usage reset is live"), references: [] },
@@ -387,35 +389,23 @@ test("manual check scans the selected window without rewinding the polling bookm
     },
   };
   const state = new ResetState("thsottiaux");
-  state.apply(
-    post("900", "Unrelated"),
-    classification("none", { relevant: false, summary: "Not relevant" }),
-    baseTime,
-  );
   const monitor = new ResetMonitor(timeline, classifier, state, () => baseTime);
+  const startTime = new Date("2026-08-24T18:00:00.000Z");
 
-  const result = await monitor.manualCheck(24);
+  await monitor.poll(startTime);
+  await monitor.poll();
 
-  assert.equal(result.matches, 2);
-  assert.equal(result.status.status, "announced");
-  assert.equal(state.sinceId, "900");
-  assert.equal(seenStartTimes[0]?.toISOString(), "2026-08-26T18:00:00.000Z");
+  assert.equal(state.status(baseTime).status, "announced");
+  assert.equal(state.sinceId, "801");
+  assert.equal(requests[0]?.sinceId, null);
+  assert.equal(requests[0]?.startTime?.toISOString(), startTime.toISOString());
+  assert.equal(requests[1]?.sinceId, "801");
+  assert.equal(requests[1]?.startTime, undefined);
 });
 
 test("health and status endpoints return no-store JSON", async () => {
   const state = new ResetState("thsottiaux");
-  let checkedHours: number | null = null;
-  let pollIntervalMinutes = 15;
-  const server = createStatusServer(
-    state,
-    async (hours) => {
-      checkedHours = hours;
-      return { hours, matches: 0, status: state.status(baseTime) };
-    },
-    "test-manual-check-token-1234567890",
-    () => pollIntervalMinutes,
-    (minutes) => { pollIntervalMinutes = minutes; },
-  );
+  const server = createStatusServer(state);
   await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
   const address = server.address();
   assert.ok(address && typeof address === "object");
@@ -438,46 +428,17 @@ test("health and status endpoints return no-store JSON", async () => {
       resetLikelihood: 0,
       confidence: null,
       checkedAt: null,
-      pollIntervalMinutes: 15,
     });
 
-    const unauthorized = await fetch(`http://127.0.0.1:${address.port}/check?hours=24`, {
+    const manualCheck = await fetch(`http://127.0.0.1:${address.port}/check?hours=24`, {
       method: "POST",
     });
-    assert.equal(unauthorized.status, 401);
-
-    const invalidWindow = await fetch(`http://127.0.0.1:${address.port}/check?hours=48`, {
-      method: "POST",
-      headers: { Authorization: "Bearer test-manual-check-token-1234567890" },
-    });
-    assert.equal(invalidWindow.status, 400);
-
-    const manual = await fetch(`http://127.0.0.1:${address.port}/check?hours=72`, {
-      method: "POST",
-      headers: { Authorization: "Bearer test-manual-check-token-1234567890" },
-    });
-    assert.equal(manual.status, 200);
-    assert.equal((await manual.json() as { matches: number }).matches, 0);
-    assert.equal(checkedHours, 72);
-
-    const invalidPollInterval = await fetch(`http://127.0.0.1:${address.port}/poll-interval?minutes=10`, {
-      method: "POST",
-      headers: { Authorization: "Bearer test-manual-check-token-1234567890" },
-    });
-    assert.equal(invalidPollInterval.status, 400);
-
-    const unauthorizedPollInterval = await fetch(`http://127.0.0.1:${address.port}/poll-interval?minutes=30`, {
-      method: "POST",
-    });
-    assert.equal(unauthorizedPollInterval.status, 401);
+    assert.equal(manualCheck.status, 404);
 
     const pollInterval = await fetch(`http://127.0.0.1:${address.port}/poll-interval?minutes=30`, {
       method: "POST",
-      headers: { Authorization: "Bearer test-manual-check-token-1234567890" },
     });
-    assert.equal(pollInterval.status, 200);
-    assert.deepEqual(await pollInterval.json(), { pollIntervalMinutes: 30 });
-    assert.equal(pollIntervalMinutes, 30);
+    assert.equal(pollInterval.status, 404);
   } finally {
     await new Promise<void>((resolveClose, reject) => {
       server.close((error) => error ? reject(error) : resolveClose());

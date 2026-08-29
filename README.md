@@ -8,19 +8,7 @@ Tibotokens watches [@thsottiaux](https://x.com/thsottiaux) for hints that a Code
 
 ## Run locally
 
-Requires Node.js 22 and macOS 13 or newer.
-
-```bash
-cp server/.env.example server/.env.local
-# Add the three secrets to server/.env.local, then:
-cd server
-npm ci
-npm start
-```
-
-- `X_BEARER_TOKEN` — X’s app-only Bearer Token (not the consumer key or secret). Copy it from your app’s **Keys and tokens** page in the [X Developer Console](https://console.x.com/).
-- `OPENROUTER_API_KEY` — authenticates the reset-classification requests. Create one on [OpenRouter’s API Keys page](https://openrouter.ai/settings/keys).
-- `MANUAL_CHECK_TOKEN` — a password shared by the server and Mac app. Generate it with `openssl rand -hex 32` and use the same value when building the app.
+Requires macOS 13 or newer. The app uses the shared Tibotokens service, so no API keys or local server are required.
 
 ```bash
 cd mac
@@ -28,16 +16,18 @@ cd mac
 open .build/app/Tibotokens.app
 ```
 
-Run `npm test` from `server` for the mocked test suite. Starting the server or using a manual check can call paid X and OpenRouter APIs.
+## Self-hosting
 
-## Deploy
+Create a Render Blueprint from `render.yaml` and add these two secrets:
 
-Create a Render Blueprint from `render.yaml` and add `X_BEARER_TOKEN`, `OPENROUTER_API_KEY`, and `MANUAL_CHECK_TOKEN` as secrets. Then build the app against the deployed service:
+- `X_BEARER_TOKEN` — your app-only Bearer Token from the [X Developer Console](https://console.x.com/).
+- `OPENROUTER_API_KEY` — create one on [OpenRouter’s API Keys page](https://openrouter.ai/settings/keys).
+
+Then build the app against your service:
 
 ```bash
 TIBOTOKENS_STATUS_URL=https://SERVICE.onrender.com/status \
-TIBOTOKENS_MANUAL_CHECK_TOKEN=YOUR_LONG_RANDOM_TOKEN \
 mac/build_app.sh
 ```
 
-The server always watches `thsottiaux`, polls every 15 minutes by default, and uses `openai/gpt-5.6-sol`. Change the frequency from the app’s **Options** menu. Render supplies `PORT`; locally it defaults to `3000`.
+The server watches `thsottiaux`, catches up on the previous three days after a restart, polls every 15 minutes, and uses `openai/gpt-5.6-sol`. Run `npm test` from `server` for its mocked test suite.

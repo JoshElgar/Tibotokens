@@ -31,7 +31,5 @@
     <true/>
     <key>TibotokensStatusURL</key>
     <string>http://127.0.0.1:3000/status</string>
-    <key>TibotokensManualCheckToken</key>
-    <string>local-development-token-change-me</string>
 </dict>
 </plist>

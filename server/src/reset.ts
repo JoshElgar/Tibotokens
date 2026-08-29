@@ -199,13 +199,6 @@ export class ResetState {
     return true;
   }
 
-  applyHistorical(post: XPost, classification: Classification, now = new Date()): boolean {
-    if (!isSnowflake(post.id)) {
-      return false;
-    }
-    return this.applyDecision(post, classification, now);
-  }
-
   private applyDecision(post: XPost, classification: Classification, now: Date): boolean {
     if (!classification.relevant) {
       return false;

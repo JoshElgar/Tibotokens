@@ -15,5 +15,3 @@ services:
         sync: false
       - key: OPENROUTER_API_KEY
         sync: false
-      - key: MANUAL_CHECK_TOKEN
-        sync: false

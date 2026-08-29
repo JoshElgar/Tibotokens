@@ -37,29 +37,13 @@ private struct StatusResponse: Decodable {
     let tweetText: String?
     let checkedAt: String?
     let resetLikelihood: Int?
-    let pollIntervalMinutes: Int?
-}
-
-private struct ManualCheckResponse: Decodable {
-    let matches: Int
-    let status: StatusResponse
-}
-
-private struct PollIntervalResponse: Decodable {
-    let pollIntervalMinutes: Int
 }
 
 @MainActor
 private final class StatusModel: ObservableObject {
     @Published private(set) var response: StatusResponse?
-    @Published private(set) var manualCheckMessage: String?
-    @Published private(set) var isManualCheckRunning = false
-    @Published private(set) var pollIntervalMinutes = 15
-    @Published private(set) var pollIntervalError: String?
-    @Published private(set) var isPollIntervalUpdating = false
 
     private let statusURL: URL
-    private let manualCheckToken: String
     private var pollTask: Task<Void, Never>?
     private var isRefreshing = false
     private var pendingNotificationTweetId: String?
@@ -68,13 +52,7 @@ private final class StatusModel: ObservableObject {
         guard let statusURL = Self.configuredStatusURL() else {
             fatalError("TibotokensStatusURL must be a valid HTTPS /status URL or local HTTP /status URL")
         }
-        guard let manualCheckToken = Bundle.main.object(
-            forInfoDictionaryKey: "TibotokensManualCheckToken"
-        ) as? String, manualCheckToken.count >= 32 else {
-            fatalError("TibotokensManualCheckToken must be at least 32 characters")
-        }
         self.statusURL = statusURL
-        self.manualCheckToken = manualCheckToken
     }
 
     var phase: ResetPhase { response?.status ?? .none }
@@ -133,9 +111,6 @@ private final class StatusModel: ObservableObject {
             else { return }
 
             let decoded = try JSONDecoder().decode(StatusResponse.self, from: data)
-            if let minutes = decoded.pollIntervalMinutes {
-                pollIntervalMinutes = minutes
-            }
             let previousPhase = response?.status ?? .none
             if decoded.status != previousPhase {
                 pendingNotificationTweetId = decoded.status.isActive ? decoded.tweetId : nil
@@ -146,73 +121,6 @@ private final class StatusModel: ObservableObject {
             await notifyIfNeeded(decoded)
         } catch {
             // Keep the last successful state and checked time during transient failures.
-        }
-    }
-
-    func manualCheck(hours: Int) async {
-        guard !isManualCheckRunning, hours == 24 || hours == 72 else { return }
-        isManualCheckRunning = true
-        manualCheckMessage = hours == 24 ? "Checking past 24 hours…" : "Checking past 3 days…"
-        defer { isManualCheckRunning = false }
-
-        do {
-            var components = URLComponents(url: statusURL, resolvingAgainstBaseURL: false)
-            components?.path = "/check"
-            components?.queryItems = [URLQueryItem(name: "hours", value: String(hours))]
-            guard let url = components?.url else { throw URLError(.badURL) }
-
-            var request = URLRequest(
-                url: url,
-                cachePolicy: .reloadIgnoringLocalCacheData,
-                timeoutInterval: 120
-            )
-            request.httpMethod = "POST"
-            request.setValue("Bearer \(manualCheckToken)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            let (data, urlResponse) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = urlResponse as? HTTPURLResponse,
-                  (200..<300).contains(httpResponse.statusCode)
-            else { throw URLError(.badServerResponse) }
-
-            let result = try JSONDecoder().decode(ManualCheckResponse.self, from: data)
-            response = result.status
-            let window = hours == 24 ? "past 24 hours" : "past 3 days"
-            if result.matches == 0 {
-                manualCheckMessage = "No reset mentions in the \(window)"
-            } else {
-                let noun = result.matches == 1 ? "mention" : "mentions"
-                manualCheckMessage = "Found \(result.matches) reset \(noun) in the \(window)"
-            }
-        } catch {
-            manualCheckMessage = "Manual check failed"
-        }
-    }
-
-    func setPollInterval(minutes: Int) async {
-        guard !isPollIntervalUpdating, minutes == 5 || minutes == 15 || minutes == 30 else { return }
-        isPollIntervalUpdating = true
-        defer { isPollIntervalUpdating = false }
-
-        do {
-            var components = URLComponents(url: statusURL, resolvingAgainstBaseURL: false)
-            components?.path = "/poll-interval"
-            components?.queryItems = [URLQueryItem(name: "minutes", value: String(minutes))]
-            guard let url = components?.url else { throw URLError(.badURL) }
-
-            var request = URLRequest(url: url, timeoutInterval: 10)
-            request.httpMethod = "POST"
-            request.setValue("Bearer \(manualCheckToken)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            let (data, urlResponse) = try await URLSession.shared.data(for: request)
-            guard let response = urlResponse as? HTTPURLResponse,
-                  (200..<300).contains(response.statusCode)
-            else { throw URLError(.badServerResponse) }
-
-            let result = try JSONDecoder().decode(PollIntervalResponse.self, from: data)
-            pollIntervalMinutes = result.pollIntervalMinutes
-            pollIntervalError = nil
-        } catch {
-            pollIntervalError = "Couldn’t change poll frequency"
         }
     }
 
@@ -381,42 +289,10 @@ private struct MenuContent: View {
             }
         }
         Divider()
-        Menu("Manual Check") {
-            Button("Past 24 Hours") {
-                Task { await model.manualCheck(hours: 24) }
-            }
-            Button("Past 3 Days") {
-                Task { await model.manualCheck(hours: 72) }
-            }
-        }
-        .disabled(model.isManualCheckRunning)
-        if let message = model.manualCheckMessage {
-            Text(message)
-        }
-        Menu("Options") {
-            Toggle("Poll every 5 minutes", isOn: intervalBinding(5))
-            Toggle("Poll every 15 minutes", isOn: intervalBinding(15))
-            Toggle("Poll every 30 minutes", isOn: intervalBinding(30))
-        }
-        .disabled(model.isPollIntervalUpdating)
-        if let error = model.pollIntervalError {
-            Text(error)
-        }
-        Divider()
         Button("Quit") {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q")
-    }
-
-    private func intervalBinding(_ minutes: Int) -> Binding<Bool> {
-        Binding(
-            get: { model.pollIntervalMinutes == minutes },
-            set: { selected in
-                guard selected else { return }
-                Task { await model.setPollInterval(minutes: minutes) }
-            }
-        )
     }
 }
 

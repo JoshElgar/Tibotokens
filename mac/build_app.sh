@@ -3,8 +3,7 @@
 set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-status_url=${TIBOTOKENS_STATUS_URL:-http://127.0.0.1:3000/status}
-manual_check_token=${TIBOTOKENS_MANUAL_CHECK_TOKEN:-local-development-token-change-me}
+status_url=${TIBOTOKENS_STATUS_URL:-https://tibotokens.onrender.com/status}
 
 case "$status_url" in
     https://*/status)
@@ -39,19 +38,6 @@ case "$status_url" in
         ;;
 esac
 
-if [ "${#manual_check_token}" -lt 32 ]; then
-    echo "TIBOTOKENS_MANUAL_CHECK_TOKEN must be at least 32 characters" >&2
-    exit 1
-fi
-case "$status_url" in
-    https://*)
-        if [ "$manual_check_token" = "local-development-token-change-me" ]; then
-            echo "Set a private TIBOTOKENS_MANUAL_CHECK_TOKEN for a production build" >&2
-            exit 1
-        fi
-        ;;
-esac
-
 cd "$script_dir"
 swift build
 binary_dir=$(swift build --show-bin-path)
@@ -65,7 +51,6 @@ cp "$binary_dir/Tibotokens" "$contents_dir/MacOS/Tibotokens"
 cp "$script_dir/Info.plist" "$contents_dir/Info.plist"
 cp "$script_dir/Resources/tibo_menu_icon.png" "$contents_dir/Resources/tibo_menu_icon.png"
 /usr/bin/plutil -replace TibotokensStatusURL -string "$status_url" "$contents_dir/Info.plist"
-/usr/bin/plutil -replace TibotokensManualCheckToken -string "$manual_check_token" "$contents_dir/Info.plist"
 /usr/bin/codesign --force --sign - --timestamp=none "$app_dir"
 /usr/bin/codesign --verify --deep --strict "$app_dir"
 

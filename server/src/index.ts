@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer, type Server } from "node:http";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,7 +8,6 @@ import {
   passesKeywordGate,
   postText,
   type Classification,
-  type PublicStatus,
   type XPost,
 } from "./reset.js";
 
@@ -37,13 +35,6 @@ export class InvalidClassificationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "InvalidClassificationError";
-  }
-}
-
-export class MonitorBusyError extends Error {
-  constructor() {
-    super("A check is already running");
-    this.name = "MonitorBusyError";
   }
 }
 
@@ -319,15 +310,8 @@ export class OpenRouterClassifier implements Classifier {
   }
 }
 
-export interface ManualCheckResult {
-  hours: 24 | 72;
-  matches: number;
-  status: PublicStatus;
-}
-
 export class ResetMonitor {
   private readonly classificationFailures = new Map<string, number>();
-  private busy = false;
 
   constructor(
     private readonly timeline: TimelineSource,
@@ -336,71 +320,36 @@ export class ResetMonitor {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  async poll(): Promise<void> {
-    if (this.busy) {
-      throw new MonitorBusyError();
-    }
-    this.busy = true;
-    try {
-      const items = await this.timeline.fetchTimeline(this.state.sinceId);
-      for (const item of items) {
-        if (!this.state.shouldProcess(item.post.id)) {
-          continue;
-        }
-        if (!this.isCandidate(item)) {
-          this.state.markProcessed(item.post.id);
-          continue;
-        }
-
-        try {
-          const classification = await this.classifier.classify(item.post, item.references, this.now());
-          this.classificationFailures.delete(item.post.id);
-          this.state.apply(item.post, classification, this.now());
-        } catch (error) {
-          if (!(error instanceof InvalidClassificationError)) {
-            throw error;
-          }
-          const failures = (this.classificationFailures.get(item.post.id) ?? 0) + 1;
-          if (failures < 3) {
-            this.classificationFailures.set(item.post.id, failures);
-            throw error;
-          }
-          this.classificationFailures.delete(item.post.id);
-          this.state.markProcessed(item.post.id);
-          console.error(`Skipping post ${item.post.id} after three classification failures`, error);
-        }
+  async poll(startTime?: Date): Promise<void> {
+    const items = await this.timeline.fetchTimeline(startTime ? null : this.state.sinceId, startTime);
+    for (const item of items) {
+      if (!this.state.shouldProcess(item.post.id)) {
+        continue;
       }
-      this.state.markChecked(this.now());
-    } finally {
-      this.busy = false;
-    }
-  }
-
-  async manualCheck(hours: 24 | 72): Promise<ManualCheckResult> {
-    if (this.busy) {
-      throw new MonitorBusyError();
-    }
-    this.busy = true;
-    try {
-      const checkedAt = this.now();
-      const startTime = new Date(checkedAt.getTime() - hours * 60 * 60 * 1000);
-      const items = await this.timeline.fetchTimeline(null, startTime);
-      let matches = 0;
-      for (const item of items) {
-        if (!this.isCandidate(item)) {
-          continue;
-        }
-        const classification = await this.classifier.classify(item.post, item.references, checkedAt);
-        if (classification.relevant) {
-          matches += 1;
-          this.state.applyHistorical(item.post, classification, checkedAt);
-        }
+      if (!this.isCandidate(item)) {
+        this.state.markProcessed(item.post.id);
+        continue;
       }
-      this.state.markChecked(checkedAt);
-      return { hours, matches, status: this.state.status(checkedAt) };
-    } finally {
-      this.busy = false;
+
+      try {
+        const classification = await this.classifier.classify(item.post, item.references, this.now());
+        this.classificationFailures.delete(item.post.id);
+        this.state.apply(item.post, classification, this.now());
+      } catch (error) {
+        if (!(error instanceof InvalidClassificationError)) {
+          throw error;
+        }
+        const failures = (this.classificationFailures.get(item.post.id) ?? 0) + 1;
+        if (failures < 3) {
+          this.classificationFailures.set(item.post.id, failures);
+          throw error;
+        }
+        this.classificationFailures.delete(item.post.id);
+        this.state.markProcessed(item.post.id);
+        console.error(`Skipping post ${item.post.id} after three classification failures`, error);
+      }
     }
+    this.state.markChecked(this.now());
   }
 
   private isCandidate(item: TimelineItem): boolean {
@@ -419,19 +368,7 @@ function sendJson(response: import("node:http").ServerResponse, status: number, 
   response.end(`${JSON.stringify(value)}\n`);
 }
 
-function validBearerToken(header: string | undefined, token: string): boolean {
-  const supplied = Buffer.from(header ?? "");
-  const expected = Buffer.from(`Bearer ${token}`);
-  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
-}
-
-export function createStatusServer(
-  state: ResetState,
-  manualCheck?: (hours: 24 | 72) => Promise<ManualCheckResult>,
-  manualCheckToken?: string,
-  getPollIntervalMinutes: () => number = () => 15,
-  setPollIntervalMinutes?: (minutes: number) => void,
-): Server {
+export function createStatusServer(state: ResetState): Server {
   return createHttpServer((request, response) => {
     const requestUrl = new URL(request.url ?? "/", "http://localhost");
     const path = requestUrl.pathname;
@@ -440,47 +377,7 @@ export function createStatusServer(
       return;
     }
     if (request.method === "GET" && path === "/status") {
-      sendJson(response, 200, {
-        ...state.status(),
-        pollIntervalMinutes: getPollIntervalMinutes(),
-      });
-      return;
-    }
-    if (request.method === "POST" && path === "/poll-interval" && setPollIntervalMinutes && manualCheckToken) {
-      if (!validBearerToken(request.headers.authorization, manualCheckToken)) {
-        sendJson(response, 401, { error: "Unauthorized" });
-        return;
-      }
-      const minutes = Number(requestUrl.searchParams.get("minutes"));
-      if (minutes !== 5 && minutes !== 15 && minutes !== 30) {
-        sendJson(response, 400, { error: "minutes must be 5, 15, or 30" });
-        return;
-      }
-      setPollIntervalMinutes(minutes);
-      sendJson(response, 200, { pollIntervalMinutes: minutes });
-      return;
-    }
-    if (request.method === "POST" && path === "/check" && manualCheck && manualCheckToken) {
-      if (!validBearerToken(request.headers.authorization, manualCheckToken)) {
-        sendJson(response, 401, { error: "Unauthorized" });
-        return;
-      }
-      const hours = Number(requestUrl.searchParams.get("hours"));
-      if (hours !== 24 && hours !== 72) {
-        sendJson(response, 400, { error: "hours must be 24 or 72" });
-        return;
-      }
-      void manualCheck(hours).then((result) => {
-        sendJson(response, 200, result);
-      }).catch((error: unknown) => {
-        if (error instanceof MonitorBusyError) {
-          sendJson(response, 409, { error: error.message });
-          return;
-        }
-        const message = error instanceof Error ? error.message : "Unknown manual check error";
-        console.error(`Manual check failed: ${message}`);
-        sendJson(response, 502, { error: "Manual check failed" });
-      });
+      sendJson(response, 200, state.status());
       return;
     }
     sendJson(response, 404, { error: "Not found" });
@@ -492,7 +389,6 @@ export interface Config {
   xUsername: string;
   openRouterApiKey: string;
   openRouterModel: string;
-  manualCheckToken: string;
   pollIntervalMs: number;
   port: number;
 }
@@ -514,17 +410,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error("PORT must be a valid TCP port");
   }
-  const manualCheckToken = required(env, "MANUAL_CHECK_TOKEN");
-  if (manualCheckToken.length < 32) {
-    throw new Error("MANUAL_CHECK_TOKEN must be at least 32 characters");
-  }
-
   return {
     xBearerToken: required(env, "X_BEARER_TOKEN"),
     xUsername,
     openRouterApiKey: required(env, "OPENROUTER_API_KEY"),
     openRouterModel,
-    manualCheckToken,
     pollIntervalMs,
     port,
   };
@@ -539,11 +429,13 @@ export async function start(config = loadConfig()): Promise<void> {
   );
   let timer: NodeJS.Timeout | undefined;
   let stopped = false;
-  let currentPollIntervalMs = config.pollIntervalMs;
+  let caughtUp = false;
   const runPoll = async (): Promise<void> => {
     timer = undefined;
     try {
-      await monitor.poll();
+      const startTime = caughtUp ? undefined : new Date(Date.now() - 72 * 60 * 60 * 1000);
+      await monitor.poll(startTime);
+      caughtUp = true;
       const current = state.status();
       console.log(`Poll complete: ${current.status} at ${current.checkedAt}`);
     } catch (error) {
@@ -551,25 +443,12 @@ export async function start(config = loadConfig()): Promise<void> {
       console.error(`Poll failed: ${message}`);
     } finally {
       if (!stopped) {
-        timer = setTimeout(runPoll, currentPollIntervalMs);
+        timer = setTimeout(runPoll, config.pollIntervalMs);
       }
     }
   };
 
-  const server = createStatusServer(
-    state,
-    (hours) => monitor.manualCheck(hours),
-    config.manualCheckToken,
-    () => currentPollIntervalMs / 60_000,
-    (minutes) => {
-      currentPollIntervalMs = minutes * 60_000;
-      if (timer) {
-        clearTimeout(timer);
-        timer = setTimeout(runPoll, currentPollIntervalMs);
-      }
-      console.log(`Poll frequency changed to every ${minutes} minutes`);
-    },
-  );
+  const server = createStatusServer(state);
 
   await new Promise<void>((resolveListen, reject) => {
     server.once("error", reject);

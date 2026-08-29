@@ -234,7 +234,7 @@ export class OpenRouterClassifier implements Classifier {
       signal: AbortSignal.timeout(30_000),
       body: JSON.stringify({
         model: this.model,
-        max_tokens: 180,
+        max_tokens: 1_000,
         provider: { require_parameters: true },
         response_format: {
           type: "json_schema",

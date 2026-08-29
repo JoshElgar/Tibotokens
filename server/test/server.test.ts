@@ -258,6 +258,7 @@ test("OpenRouter classifier requests strict structured output through a mocked f
   const result = await classifier.classify(post("400", "Codex usage reset may happen tonight"), [], baseTime);
   assert.equal(result.phase, "possible");
   assert.equal(result.resetLikelihood, 82);
+  assert.equal(requestBody?.max_tokens, 1_000);
   assert.equal("temperature" in (requestBody ?? {}), false);
   assert.deepEqual(requestBody?.provider, { require_parameters: true });
   assert.equal(

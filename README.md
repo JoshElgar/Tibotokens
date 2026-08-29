@@ -18,6 +18,10 @@ npm ci
 npm start
 ```
 
+- `X_BEARER_TOKEN` — X’s app-only Bearer Token (not the consumer key or secret). Copy it from your app’s **Keys and tokens** page in the [X Developer Console](https://console.x.com/).
+- `OPENROUTER_API_KEY` — authenticates the reset-classification requests. Create one on [OpenRouter’s API Keys page](https://openrouter.ai/settings/keys).
+- `MANUAL_CHECK_TOKEN` — a password shared by the server and Mac app. Generate it with `openssl rand -hex 32` and use the same value when building the app.
+
 ```bash
 cd mac
 ./build_app.sh

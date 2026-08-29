@@ -13,13 +13,7 @@ services:
     envVars:
       - key: X_BEARER_TOKEN
         sync: false
-      - key: X_USERNAME
-        value: thsottiaux
       - key: OPENROUTER_API_KEY
         sync: false
-      - key: OPENROUTER_MODEL
-        value: openai/gpt-5.6-sol
       - key: MANUAL_CHECK_TOKEN
         sync: false
-      - key: POLL_INTERVAL_MS
-        value: "300000"

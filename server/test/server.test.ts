@@ -7,6 +7,7 @@ import {
   ResetMonitor,
   XClient,
   createStatusServer,
+  loadConfig,
   type TimelineItem,
 } from "../src/index.js";
 import {
@@ -39,6 +40,19 @@ function classification(
     ...overrides,
   };
 }
+
+test("config requires only secrets and keeps public settings in code", () => {
+  const config = loadConfig({
+    X_BEARER_TOKEN: "x-token",
+    OPENROUTER_API_KEY: "openrouter-key",
+    MANUAL_CHECK_TOKEN: "12345678901234567890123456789012",
+  });
+
+  assert.equal(config.xUsername, "thsottiaux");
+  assert.equal(config.openRouterModel, "openai/gpt-5.6-sol");
+  assert.equal(config.pollIntervalMs, 300_000);
+  assert.equal(config.port, 3000);
+});
 
 test("strict classification parsing accepts the schema and rejects bad invariants", () => {
   const valid = parseClassification({

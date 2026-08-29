@@ -3,7 +3,6 @@
 set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-configuration=${CONFIGURATION:-debug}
 status_url=${TIBOTOKENS_STATUS_URL:-http://127.0.0.1:3000/status}
 manual_check_token=${TIBOTOKENS_MANUAL_CHECK_TOKEN:-local-development-token-change-me}
 
@@ -54,8 +53,8 @@ case "$status_url" in
 esac
 
 cd "$script_dir"
-swift build -c "$configuration"
-binary_dir=$(swift build -c "$configuration" --show-bin-path)
+swift build
+binary_dir=$(swift build --show-bin-path)
 app_dir="$script_dir/.build/app/Tibotokens.app"
 contents_dir="$app_dir/Contents"
 

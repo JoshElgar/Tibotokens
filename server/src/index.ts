@@ -478,6 +478,10 @@ export interface Config {
   port: number;
 }
 
+const xUsername = "thsottiaux";
+const openRouterModel = "openai/gpt-5.6-sol";
+const pollIntervalMs = 5 * 60 * 1000;
+
 function required(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
   if (!value) {
@@ -487,15 +491,6 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const xUsername = required(env, "X_USERNAME").replace(/^@/, "");
-  if (!/^[A-Za-z0-9_]{1,15}$/.test(xUsername)) {
-    throw new Error("X_USERNAME is invalid");
-  }
-
-  const pollIntervalMs = Number(env.POLL_INTERVAL_MS ?? "300000");
-  if (!Number.isInteger(pollIntervalMs) || pollIntervalMs < 10_000) {
-    throw new Error("POLL_INTERVAL_MS must be an integer of at least 10000");
-  }
   const port = Number(env.PORT ?? "3000");
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error("PORT must be a valid TCP port");
@@ -509,7 +504,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     xBearerToken: required(env, "X_BEARER_TOKEN"),
     xUsername,
     openRouterApiKey: required(env, "OPENROUTER_API_KEY"),
-    openRouterModel: required(env, "OPENROUTER_MODEL"),
+    openRouterModel,
     manualCheckToken,
     pollIntervalMs,
     port,

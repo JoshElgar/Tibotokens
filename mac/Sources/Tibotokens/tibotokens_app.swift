@@ -89,11 +89,11 @@ private final class StatusModel: ObservableObject {
         return URL(string: "https://x.com/thsottiaux/status/\(id)")
     }
 
-    var lastCheckedText: String {
+    func lastCheckedText(relativeTo now: Date) -> String {
         guard let rawDate = response?.checkedAt,
               let date = Self.parseDate(rawDate)
         else { return "Not checked yet" }
-        let relative = Self.relativeDateFormatter.localizedString(for: date, relativeTo: Date())
+        let relative = Self.relativeDateFormatter.localizedString(for: date, relativeTo: now)
         return "Last checked \(relative)"
     }
 
@@ -228,9 +228,7 @@ private final class StatusModel: ObservableObject {
     }
 
     private static func configuredStatusURL() -> URL? {
-        let bundled = Bundle.main.object(forInfoDictionaryKey: "TibotokensStatusURL") as? String
-        let raw = bundled ?? ProcessInfo.processInfo.environment["TIBOTOKENS_STATUS_URL"]
-        guard let raw,
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: "TibotokensStatusURL") as? String,
               let components = URLComponents(string: raw),
               let scheme = components.scheme?.lowercased(),
               let host = components.host?.lowercased(),
@@ -320,7 +318,9 @@ private struct MenuContent: View {
     var body: some View {
         Text("Reset likelihood today — \(model.resetLikelihood)%")
             .monospacedDigit()
-        Text("Tibo’s reset posts — \(model.lastCheckedText)")
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            Text("Tibo’s reset posts — \(model.lastCheckedText(relativeTo: context.date))")
+        }
         Divider()
         if let postText = model.postText {
             Text(postText)

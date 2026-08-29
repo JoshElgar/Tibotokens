@@ -30,4 +30,4 @@ TIBOTOKENS_STATUS_URL=https://SERVICE.onrender.com/status \
 mac/build_app.sh
 ```
 
-The server watches `thsottiaux`, catches up on the previous three days after a restart, polls every hour, and uses `openai/gpt-5.6-sol`. Run `npm test` from `server` for its mocked test suite.
+The server watches `thsottiaux`, catches up on the previous three days after a restart, polls every hour, and keeps the strongest relevant signal from a rolling 24-hour window. It uses `openai/gpt-5.6-sol`. Run `npm test` from `server` for its mocked test suite.

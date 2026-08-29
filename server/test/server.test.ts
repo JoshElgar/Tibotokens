@@ -117,8 +117,8 @@ test("events expire at the specified boundaries", () => {
     expectedAt: new Date("2026-08-27T19:00:00Z"),
   };
 
-  assert.equal(isExpired(possible, new Date("2026-08-27T23:59:59.999Z")), false);
-  assert.equal(isExpired(possible, new Date("2026-08-28T00:00:00Z")), true);
+  assert.equal(isExpired(possible, new Date("2026-08-28T17:59:59.999Z")), false);
+  assert.equal(isExpired(possible, new Date("2026-08-28T18:00:00Z")), true);
   assert.equal(isExpired(announced, new Date("2026-08-27T20:00:00Z")), true);
   assert.equal(isExpired(scheduled, new Date("2026-08-27T20:59:59.999Z")), false);
   assert.equal(isExpired(scheduled, new Date("2026-08-27T21:00:00Z")), true);
@@ -162,6 +162,22 @@ test("duplicate, equal, older, and irrelevant posts do not replace current state
     true,
   );
   assert.equal(state.status(baseTime).status, "possible");
+});
+
+test("state keeps the strongest possible signal in a rolling 24-hour window", () => {
+  const state = new ResetState("thsottiaux");
+  state.apply(post("210", "Strong Codex reset hint"), classification("possible", { resetLikelihood: 80 }), baseTime);
+  state.apply(
+    post("211", "Weak Codex reset hint", "2026-08-27T19:00:00Z"),
+    classification("possible", { resetLikelihood: 30 }),
+    new Date("2026-08-27T19:00:00Z"),
+  );
+  state.markChecked(new Date("2026-08-28T17:00:00Z"));
+
+  assert.equal(state.status(new Date("2026-08-28T17:00:00Z")).tweetId, "210");
+  assert.equal(state.status(new Date("2026-08-28T17:00:00Z")).resetLikelihood, 80);
+  assert.equal(state.status(new Date("2026-08-28T18:00:00Z")).tweetId, "211");
+  assert.equal(state.status(new Date("2026-08-28T19:00:00Z")).status, "none");
 });
 
 test("X client includes context, excludes reposts, and paginates since_id catch-up", async () => {
@@ -419,6 +435,11 @@ test("health and status endpoints return no-store JSON", async () => {
     assert.equal(health.headers.get("cache-control"), "no-store");
     assert.deepEqual(await health.json(), { ok: true });
 
+    const unready = await fetch(`http://127.0.0.1:${address.port}/status`);
+    assert.equal(unready.status, 503);
+    assert.deepEqual(await unready.json(), { error: "Not ready" });
+
+    state.markChecked(baseTime);
     const status = await fetch(`http://127.0.0.1:${address.port}/status`);
     assert.equal(status.status, 200);
     assert.deepEqual(await status.json(), {
@@ -431,7 +452,7 @@ test("health and status endpoints return no-store JSON", async () => {
       tweetUrl: null,
       resetLikelihood: 0,
       confidence: null,
-      checkedAt: null,
+      checkedAt: baseTime.toISOString(),
     });
 
     const manualCheck = await fetch(`http://127.0.0.1:${address.port}/check?hours=24`, {

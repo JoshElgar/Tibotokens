@@ -292,7 +292,7 @@ private struct MenuContent: View {
     @ObservedObject var model: StatusModel
 
     var body: some View {
-        Text("Reset likelihood today — \(model.resetLikelihood)%")
+        Text("Reset likelihood soon — \(model.resetLikelihood)%")
             .monospacedDigit()
         Divider()
         TimelineView(.periodic(from: .now, by: 1)) { context in

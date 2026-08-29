@@ -144,7 +144,7 @@ export function isExpired(event: ResetEvent, now: Date): boolean {
     return true;
   }
 
-  const lifetimeMs = event.phase === "possible" ? 6 * 60 * 60 * 1000 : 2 * 60 * 60 * 1000;
+  const lifetimeMs = event.phase === "possible" ? 24 * 60 * 60 * 1000 : 2 * 60 * 60 * 1000;
   return now.getTime() >= start.getTime() + lifetimeMs;
 }
 
@@ -163,7 +163,7 @@ function postDate(post: XPost, fallback: Date): Date {
 }
 
 export class ResetState {
-  private current: ResetEvent | null = null;
+  private events: ResetEvent[] = [];
   private latestProcessedId: string | null = null;
   private latestDecisionId: string | null = null;
   private lastCheckedAt: Date | null = null;
@@ -209,11 +209,11 @@ export class ResetState {
     }
     this.latestDecisionId = post.id;
     if (classification.phase === "none") {
-      this.current = null;
+      this.events = [];
       return true;
     }
 
-    this.current = {
+    const event: ResetEvent = {
       phase: classification.phase,
       expectedAt: classification.expectedAt ? new Date(classification.expectedAt) : null,
       summary: classification.summary,
@@ -222,6 +222,11 @@ export class ResetState {
       post,
       createdAt: postDate(post, now),
     };
+    if (classification.phase === "scheduled" || classification.phase === "announced") {
+      this.events = [event];
+    } else {
+      this.events.push(event);
+    }
     return true;
   }
 
@@ -230,11 +235,13 @@ export class ResetState {
   }
 
   status(now = new Date()): PublicStatus {
-    if (this.current && isExpired(this.current, now)) {
-      this.current = null;
-    }
+    this.events = this.events.filter((event) => !isExpired(event, now));
+    const current = this.events.reduce<ResetEvent | null>(
+      (strongest, event) => !strongest || event.resetLikelihood >= strongest.resetLikelihood ? event : strongest,
+      null,
+    );
 
-    if (!this.current) {
+    if (!current) {
       return {
         status: "none",
         summary: "No reset expected",
@@ -250,15 +257,15 @@ export class ResetState {
     }
 
     return {
-      status: this.current.phase,
-      summary: this.current.summary,
-      expectedAt: this.current.expectedAt?.toISOString() ?? null,
-      tweetId: this.current.post.id,
-      tweetText: postText(this.current.post),
-      tweetCreatedAt: this.current.createdAt.toISOString(),
-      tweetUrl: `https://x.com/${encodeURIComponent(this.username)}/status/${this.current.post.id}`,
-      resetLikelihood: this.current.resetLikelihood,
-      confidence: this.current.confidence,
+      status: current.phase,
+      summary: current.summary,
+      expectedAt: current.expectedAt?.toISOString() ?? null,
+      tweetId: current.post.id,
+      tweetText: postText(current.post),
+      tweetCreatedAt: current.createdAt.toISOString(),
+      tweetUrl: `https://x.com/${encodeURIComponent(this.username)}/status/${current.post.id}`,
+      resetLikelihood: current.resetLikelihood,
+      confidence: current.confidence,
       checkedAt: this.lastCheckedAt?.toISOString() ?? null,
     };
   }

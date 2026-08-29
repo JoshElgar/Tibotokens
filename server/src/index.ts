@@ -376,7 +376,8 @@ export function createStatusServer(state: ResetState): Server {
       return;
     }
     if (request.method === "GET" && path === "/status") {
-      sendJson(response, 200, state.status());
+      const status = state.status();
+      sendJson(response, status.checkedAt === null ? 503 : 200, status.checkedAt === null ? { error: "Not ready" } : status);
       return;
     }
     sendJson(response, 404, { error: "Not found" });

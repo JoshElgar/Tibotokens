@@ -37,6 +37,7 @@ private struct StatusResponse: Decodable {
     let tweetText: String?
     let checkedAt: String?
     let resetLikelihood: Int?
+    let pollIntervalMinutes: Int?
 }
 
 private struct ManualCheckResponse: Decodable {
@@ -44,11 +45,18 @@ private struct ManualCheckResponse: Decodable {
     let status: StatusResponse
 }
 
+private struct PollIntervalResponse: Decodable {
+    let pollIntervalMinutes: Int
+}
+
 @MainActor
 private final class StatusModel: ObservableObject {
     @Published private(set) var response: StatusResponse?
     @Published private(set) var manualCheckMessage: String?
     @Published private(set) var isManualCheckRunning = false
+    @Published private(set) var pollIntervalMinutes = 15
+    @Published private(set) var pollIntervalError: String?
+    @Published private(set) var isPollIntervalUpdating = false
 
     private let statusURL: URL
     private let manualCheckToken: String
@@ -125,6 +133,9 @@ private final class StatusModel: ObservableObject {
             else { return }
 
             let decoded = try JSONDecoder().decode(StatusResponse.self, from: data)
+            if let minutes = decoded.pollIntervalMinutes {
+                pollIntervalMinutes = minutes
+            }
             let previousPhase = response?.status ?? .none
             if decoded.status != previousPhase {
                 pendingNotificationTweetId = decoded.status.isActive ? decoded.tweetId : nil
@@ -174,6 +185,34 @@ private final class StatusModel: ObservableObject {
             }
         } catch {
             manualCheckMessage = "Manual check failed"
+        }
+    }
+
+    func setPollInterval(minutes: Int) async {
+        guard !isPollIntervalUpdating, minutes == 5 || minutes == 15 || minutes == 30 else { return }
+        isPollIntervalUpdating = true
+        defer { isPollIntervalUpdating = false }
+
+        do {
+            var components = URLComponents(url: statusURL, resolvingAgainstBaseURL: false)
+            components?.path = "/poll-interval"
+            components?.queryItems = [URLQueryItem(name: "minutes", value: String(minutes))]
+            guard let url = components?.url else { throw URLError(.badURL) }
+
+            var request = URLRequest(url: url, timeoutInterval: 10)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(manualCheckToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            let (data, urlResponse) = try await URLSession.shared.data(for: request)
+            guard let response = urlResponse as? HTTPURLResponse,
+                  (200..<300).contains(response.statusCode)
+            else { throw URLError(.badServerResponse) }
+
+            let result = try JSONDecoder().decode(PollIntervalResponse.self, from: data)
+            pollIntervalMinutes = result.pollIntervalMinutes
+            pollIntervalError = nil
+        } catch {
+            pollIntervalError = "Couldn’t change poll frequency"
         }
     }
 
@@ -346,11 +385,30 @@ private struct MenuContent: View {
         if let message = model.manualCheckMessage {
             Text(message)
         }
+        Menu("Options") {
+            Toggle("Poll every 5 minutes", isOn: intervalBinding(5))
+            Toggle("Poll every 15 minutes", isOn: intervalBinding(15))
+            Toggle("Poll every 30 minutes", isOn: intervalBinding(30))
+        }
+        .disabled(model.isPollIntervalUpdating)
+        if let error = model.pollIntervalError {
+            Text(error)
+        }
         Divider()
         Button("Quit") {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q")
+    }
+
+    private func intervalBinding(_ minutes: Int) -> Binding<Bool> {
+        Binding(
+            get: { model.pollIntervalMinutes == minutes },
+            set: { selected in
+                guard selected else { return }
+                Task { await model.setPollInterval(minutes: minutes) }
+            }
+        )
     }
 }
 

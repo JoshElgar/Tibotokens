@@ -50,7 +50,7 @@ test("config requires only secrets and keeps public settings in code", () => {
 
   assert.equal(config.xUsername, "thsottiaux");
   assert.equal(config.openRouterModel, "openai/gpt-5.6-sol");
-  assert.equal(config.pollIntervalMs, 300_000);
+  assert.equal(config.pollIntervalMs, 900_000);
   assert.equal(config.port, 3000);
 });
 
@@ -405,6 +405,7 @@ test("manual check scans the selected window without rewinding the polling bookm
 test("health and status endpoints return no-store JSON", async () => {
   const state = new ResetState("thsottiaux");
   let checkedHours: number | null = null;
+  let pollIntervalMinutes = 15;
   const server = createStatusServer(
     state,
     async (hours) => {
@@ -412,6 +413,8 @@ test("health and status endpoints return no-store JSON", async () => {
       return { hours, matches: 0, status: state.status(baseTime) };
     },
     "test-manual-check-token-1234567890",
+    () => pollIntervalMinutes,
+    (minutes) => { pollIntervalMinutes = minutes; },
   );
   await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
   const address = server.address();
@@ -435,6 +438,7 @@ test("health and status endpoints return no-store JSON", async () => {
       resetLikelihood: 0,
       confidence: null,
       checkedAt: null,
+      pollIntervalMinutes: 15,
     });
 
     const unauthorized = await fetch(`http://127.0.0.1:${address.port}/check?hours=24`, {
@@ -455,6 +459,25 @@ test("health and status endpoints return no-store JSON", async () => {
     assert.equal(manual.status, 200);
     assert.equal((await manual.json() as { matches: number }).matches, 0);
     assert.equal(checkedHours, 72);
+
+    const invalidPollInterval = await fetch(`http://127.0.0.1:${address.port}/poll-interval?minutes=10`, {
+      method: "POST",
+      headers: { Authorization: "Bearer test-manual-check-token-1234567890" },
+    });
+    assert.equal(invalidPollInterval.status, 400);
+
+    const unauthorizedPollInterval = await fetch(`http://127.0.0.1:${address.port}/poll-interval?minutes=30`, {
+      method: "POST",
+    });
+    assert.equal(unauthorizedPollInterval.status, 401);
+
+    const pollInterval = await fetch(`http://127.0.0.1:${address.port}/poll-interval?minutes=30`, {
+      method: "POST",
+      headers: { Authorization: "Bearer test-manual-check-token-1234567890" },
+    });
+    assert.equal(pollInterval.status, 200);
+    assert.deepEqual(await pollInterval.json(), { pollIntervalMinutes: 30 });
+    assert.equal(pollIntervalMinutes, 30);
   } finally {
     await new Promise<void>((resolveClose, reject) => {
       server.close((error) => error ? reject(error) : resolveClose());

@@ -36,4 +36,4 @@ TIBOTOKENS_MANUAL_CHECK_TOKEN=YOUR_LONG_RANDOM_TOKEN \
 mac/build_app.sh
 ```
 
-The server always watches `thsottiaux`, polls every five minutes, and uses `openai/gpt-5.6-sol`. Render supplies `PORT`; locally it defaults to `3000`.
+The server always watches `thsottiaux`, polls every 15 minutes by default, and uses `openai/gpt-5.6-sol`. Change the frequency from the app’s **Options** menu. Render supplies `PORT`; locally it defaults to `3000`.

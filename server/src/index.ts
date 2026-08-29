@@ -429,6 +429,8 @@ export function createStatusServer(
   state: ResetState,
   manualCheck?: (hours: 24 | 72) => Promise<ManualCheckResult>,
   manualCheckToken?: string,
+  getPollIntervalMinutes: () => number = () => 15,
+  setPollIntervalMinutes?: (minutes: number) => void,
 ): Server {
   return createHttpServer((request, response) => {
     const requestUrl = new URL(request.url ?? "/", "http://localhost");
@@ -438,7 +440,24 @@ export function createStatusServer(
       return;
     }
     if (request.method === "GET" && path === "/status") {
-      sendJson(response, 200, state.status());
+      sendJson(response, 200, {
+        ...state.status(),
+        pollIntervalMinutes: getPollIntervalMinutes(),
+      });
+      return;
+    }
+    if (request.method === "POST" && path === "/poll-interval" && setPollIntervalMinutes && manualCheckToken) {
+      if (!validBearerToken(request.headers.authorization, manualCheckToken)) {
+        sendJson(response, 401, { error: "Unauthorized" });
+        return;
+      }
+      const minutes = Number(requestUrl.searchParams.get("minutes"));
+      if (minutes !== 5 && minutes !== 15 && minutes !== 30) {
+        sendJson(response, 400, { error: "minutes must be 5, 15, or 30" });
+        return;
+      }
+      setPollIntervalMinutes(minutes);
+      sendJson(response, 200, { pollIntervalMinutes: minutes });
       return;
     }
     if (request.method === "POST" && path === "/check" && manualCheck && manualCheckToken) {
@@ -480,7 +499,7 @@ export interface Config {
 
 const xUsername = "thsottiaux";
 const openRouterModel = "openai/gpt-5.6-sol";
-const pollIntervalMs = 5 * 60 * 1000;
+const pollIntervalMs = 15 * 60 * 1000;
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
@@ -518,21 +537,11 @@ export async function start(config = loadConfig()): Promise<void> {
     new OpenRouterClassifier(config.openRouterApiKey, config.openRouterModel),
     state,
   );
-  const server = createStatusServer(
-    state,
-    (hours) => monitor.manualCheck(hours),
-    config.manualCheckToken,
-  );
-
-  await new Promise<void>((resolveListen, reject) => {
-    server.once("error", reject);
-    server.listen(config.port, "0.0.0.0", resolveListen);
-  });
-  console.log(`Listening on 0.0.0.0:${config.port}`);
-
   let timer: NodeJS.Timeout | undefined;
   let stopped = false;
+  let currentPollIntervalMs = config.pollIntervalMs;
   const runPoll = async (): Promise<void> => {
+    timer = undefined;
     try {
       await monitor.poll();
       const current = state.status();
@@ -542,10 +551,32 @@ export async function start(config = loadConfig()): Promise<void> {
       console.error(`Poll failed: ${message}`);
     } finally {
       if (!stopped) {
-        timer = setTimeout(runPoll, config.pollIntervalMs);
+        timer = setTimeout(runPoll, currentPollIntervalMs);
       }
     }
   };
+
+  const server = createStatusServer(
+    state,
+    (hours) => monitor.manualCheck(hours),
+    config.manualCheckToken,
+    () => currentPollIntervalMs / 60_000,
+    (minutes) => {
+      currentPollIntervalMs = minutes * 60_000;
+      if (timer) {
+        clearTimeout(timer);
+        timer = setTimeout(runPoll, currentPollIntervalMs);
+      }
+      console.log(`Poll frequency changed to every ${minutes} minutes`);
+    },
+  );
+
+  await new Promise<void>((resolveListen, reject) => {
+    server.once("error", reject);
+    server.listen(config.port, "0.0.0.0", resolveListen);
+  });
+  console.log(`Listening on 0.0.0.0:${config.port}`);
+
   void runPoll();
 
   const shutdown = (): void => {

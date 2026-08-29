@@ -357,6 +357,7 @@ private struct MenuContent: View {
     var body: some View {
         Text("Reset likelihood today — \(model.resetLikelihood)%")
             .monospacedDigit()
+        Divider()
         TimelineView(.periodic(from: .now, by: 1)) { context in
             Text("Tibo’s reset posts — \(model.lastCheckedText(relativeTo: context.date))")
         }
@@ -373,7 +374,7 @@ private struct MenuContent: View {
             }
         }
         Divider()
-        Menu("Check Tibo") {
+        Menu("Manual Check") {
             Button("Past 24 Hours") {
                 Task { await model.manualCheck(hours: 24) }
             }

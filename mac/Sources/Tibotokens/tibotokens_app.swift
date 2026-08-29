@@ -246,30 +246,34 @@ private struct MenuBarLabel: View {
     let phase: ResetPhase
     let resetLikelihood: Int
 
-    private static let templateIcon: NSImage? = {
+    private static let icons: (template: NSImage?, green: NSImage?) = {
         guard let url = Bundle.main.url(forResource: "tibo_menu_icon", withExtension: "png"),
               let image = NSImage(contentsOf: url)
-        else { return nil }
+        else { return (nil, nil) }
         image.isTemplate = true
         image.size = NSSize(width: 18, height: 18)
-        return image
+        guard let green = image.copy() as? NSImage else { return (image, nil) }
+        green.isTemplate = false
+        green.lockFocus()
+        NSColor.systemGreen.set()
+        NSRect(origin: .zero, size: green.size).fill(using: .sourceAtop)
+        green.unlockFocus()
+        return (image, green)
     }()
 
     var body: some View {
-        if let image = Self.templateIcon {
+        if let image = resetLikelihood > 50 ? Self.icons.green : Self.icons.template {
             if let text = phase.menuBarText {
                 Label {
                     Text(text)
                 } icon: {
                     Image(nsImage: image)
-                        .renderingMode(.template)
-                        .foregroundStyle(resetLikelihood > 50 ? Color.green : Color.primary)
+                        .renderingMode(resetLikelihood > 50 ? .original : .template)
                 }
                 .accessibilityLabel(phase.statusText)
             } else {
                 Image(nsImage: image)
-                    .renderingMode(.template)
-                    .foregroundStyle(resetLikelihood > 50 ? Color.green : Color.primary)
+                    .renderingMode(resetLikelihood > 50 ? .original : .template)
                     .accessibilityLabel(phase.statusText)
             }
         } else if let text = phase.menuBarText {
@@ -304,7 +308,7 @@ private struct MenuContent: View {
         if let postURL = model.postURL {
             TimelineView(.periodic(from: .now, by: 60)) { context in
                 let title = model.postCreatedText(relativeTo: context.date)
-                    .map { "Open post    \($0)" } ?? "Open post"
+                    .map { "Open post from \($0)" } ?? "Open post"
                 Button(title) {
                     NSWorkspace.shared.open(postURL)
                 }

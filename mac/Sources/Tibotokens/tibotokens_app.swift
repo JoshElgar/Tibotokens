@@ -302,21 +302,12 @@ private struct MenuContent: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         if let postURL = model.postURL {
-            Button {
-                NSWorkspace.shared.open(postURL)
-            } label: {
-                HStack(spacing: 8) {
-                    Text("Open post")
-                    Spacer()
-                    TimelineView(.periodic(from: .now, by: 60)) { context in
-                        if let created = model.postCreatedText(relativeTo: context.date) {
-                            Text(created)
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-                    }
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                let title = model.postCreatedText(relativeTo: context.date)
+                    .map { "Open post    \($0)" } ?? "Open post"
+                Button(title) {
+                    NSWorkspace.shared.open(postURL)
                 }
-                .frame(width: 320)
             }
         }
         Divider()

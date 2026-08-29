@@ -49,7 +49,7 @@ test("config requires only secrets and keeps public settings in code", () => {
 
   assert.equal(config.xUsername, "thsottiaux");
   assert.equal(config.openRouterModel, "openai/gpt-5.6-sol");
-  assert.equal(config.pollIntervalMs, 900_000);
+  assert.equal(config.pollIntervalMs, 3_600_000);
   assert.equal(config.port, 3000);
 });
 

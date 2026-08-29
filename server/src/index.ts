@@ -394,7 +394,7 @@ export interface Config {
 
 const xUsername = "thsottiaux";
 const openRouterModel = "openai/gpt-5.6-sol";
-const pollIntervalMs = 15 * 60 * 1000;
+const pollIntervalMs = 60 * 60 * 1000;
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();

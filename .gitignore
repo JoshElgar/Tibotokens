@@ -1,0 +1,5 @@
+mac/.build/
+server/dist/
+server/node_modules/
+server/.env.local
+.DS_Store

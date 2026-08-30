@@ -127,8 +127,8 @@ test("events expire at the specified boundaries", () => {
     expectedAt: new Date("2026-08-27T19:00:00Z"),
   };
 
-  assert.equal(isExpired(possible, new Date("2026-08-28T17:59:59.999Z")), false);
-  assert.equal(isExpired(possible, new Date("2026-08-28T18:00:00Z")), true);
+  assert.equal(isExpired(possible, new Date("2026-08-29T17:59:59.999Z")), false);
+  assert.equal(isExpired(possible, new Date("2026-08-29T18:00:00Z")), true);
   assert.equal(isExpired(announced, new Date("2026-08-27T20:00:00Z")), true);
   assert.equal(isExpired(scheduled, new Date("2026-08-27T20:59:59.999Z")), false);
   assert.equal(isExpired(scheduled, new Date("2026-08-27T21:00:00Z")), true);
@@ -174,7 +174,7 @@ test("duplicate, equal, older, and irrelevant posts do not replace current state
   assert.equal(state.status(baseTime).status, "possible");
 });
 
-test("state keeps the strongest possible signal in a rolling 24-hour window", () => {
+test("state keeps the strongest possible signal in a rolling 48-hour window", () => {
   const state = new ResetState("thsottiaux");
   state.apply(post("210", "Strong Codex reset hint"), classification("possible", { resetLikelihood: 80 }), baseTime);
   state.apply(
@@ -182,12 +182,12 @@ test("state keeps the strongest possible signal in a rolling 24-hour window", ()
     classification("possible", { resetLikelihood: 30 }),
     new Date("2026-08-27T19:00:00Z"),
   );
-  state.markChecked(new Date("2026-08-28T17:00:00Z"));
+  state.markChecked(new Date("2026-08-29T17:00:00Z"));
 
-  assert.equal(state.status(new Date("2026-08-28T17:00:00Z")).tweetId, "210");
-  assert.equal(state.status(new Date("2026-08-28T17:00:00Z")).resetLikelihood, 80);
-  assert.equal(state.status(new Date("2026-08-28T18:00:00Z")).tweetId, "211");
-  assert.equal(state.status(new Date("2026-08-28T19:00:00Z")).status, "none");
+  assert.equal(state.status(new Date("2026-08-29T17:00:00Z")).tweetId, "210");
+  assert.equal(state.status(new Date("2026-08-29T17:00:00Z")).resetLikelihood, 80);
+  assert.equal(state.status(new Date("2026-08-29T18:00:00Z")).tweetId, "211");
+  assert.equal(state.status(new Date("2026-08-29T19:00:00Z")).status, "none");
 });
 
 test("X client includes context, excludes reposts, and paginates since_id catch-up", async () => {

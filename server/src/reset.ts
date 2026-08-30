@@ -144,7 +144,7 @@ export function isExpired(event: ResetEvent, now: Date): boolean {
     return true;
   }
 
-  const lifetimeMs = event.phase === "possible" ? 24 * 60 * 60 * 1000 : 2 * 60 * 60 * 1000;
+  const lifetimeMs = event.phase === "possible" ? 48 * 60 * 60 * 1000 : 2 * 60 * 60 * 1000;
   return now.getTime() >= start.getTime() + lifetimeMs;
 }
 

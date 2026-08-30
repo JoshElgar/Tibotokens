@@ -1,4 +1,5 @@
 export const phases = ["none", "possible", "scheduled", "announced"] as const;
+export const signalWindowMs = 72 * 60 * 60 * 1000;
 
 export type Phase = (typeof phases)[number];
 
@@ -6,6 +7,8 @@ export interface Classification {
   relevant: boolean;
   phase: Phase;
   expectedAt: string | null;
+  estimatedWindowStart: string | null;
+  estimatedWindowEnd: string | null;
   summary: string;
   resetLikelihood: number;
   confidence: number;
@@ -27,6 +30,8 @@ export interface XPost {
 export interface ResetEvent {
   phase: Exclude<Phase, "none">;
   expectedAt: Date | null;
+  estimatedWindowStart: Date | null;
+  estimatedWindowEnd: Date | null;
   summary: string;
   resetLikelihood: number;
   confidence: number;
@@ -38,6 +43,8 @@ export interface PublicStatus {
   status: Phase;
   summary: string;
   expectedAt: string | null;
+  estimatedWindowStart: string | null;
+  estimatedWindowEnd: string | null;
   tweetId: string | null;
   tweetText: string | null;
   tweetCreatedAt: string | null;
@@ -51,6 +58,8 @@ const classificationKeys = new Set([
   "relevant",
   "phase",
   "expectedAt",
+  "estimatedWindowStart",
+  "estimatedWindowEnd",
   "summary",
   "resetLikelihood",
   "confidence",
@@ -90,12 +99,25 @@ export function parseClassification(value: unknown): Classification {
     throw new Error("Classification has unexpected fields");
   }
 
-  const { relevant, phase, expectedAt, summary, resetLikelihood, confidence } = value;
+  const {
+    relevant,
+    phase,
+    expectedAt,
+    estimatedWindowStart,
+    estimatedWindowEnd,
+    summary,
+    resetLikelihood,
+    confidence,
+  } = value;
   if (typeof relevant !== "boolean" || !isPhase(phase)) {
     throw new Error("Classification relevance or phase is invalid");
   }
   if (expectedAt !== null && typeof expectedAt !== "string") {
     throw new Error("Classification expectedAt is invalid");
+  }
+  if (estimatedWindowStart !== null && typeof estimatedWindowStart !== "string"
+    || estimatedWindowEnd !== null && typeof estimatedWindowEnd !== "string") {
+    throw new Error("Classification estimated window is invalid");
   }
   if (typeof summary !== "string" || summary.trim().length === 0 || summary.trim().length > 160) {
     throw new Error("Classification summary is invalid");
@@ -116,11 +138,25 @@ export function parseClassification(value: unknown): Classification {
   } else if (expectedAt !== null) {
     throw new Error("Only a scheduled classification can have expectedAt");
   }
+  if ((estimatedWindowStart === null) !== (estimatedWindowEnd === null)) {
+    throw new Error("An estimated window needs both start and end");
+  }
+  if (estimatedWindowStart !== null && estimatedWindowEnd !== null) {
+    if (phase !== "possible") {
+      throw new Error("Only a possible classification can have an estimated window");
+    }
+    if (!isValidUtcDate(estimatedWindowStart) || !isValidUtcDate(estimatedWindowEnd)
+      || Date.parse(estimatedWindowEnd) <= Date.parse(estimatedWindowStart)) {
+      throw new Error("Classification estimated window is invalid");
+    }
+  }
 
   return {
     relevant,
     phase,
     expectedAt,
+    estimatedWindowStart,
+    estimatedWindowEnd,
     summary: summary.trim(),
     resetLikelihood: resetLikelihood as number,
     confidence,
@@ -144,7 +180,7 @@ export function isExpired(event: ResetEvent, now: Date): boolean {
     return true;
   }
 
-  const lifetimeMs = event.phase === "possible" ? 48 * 60 * 60 * 1000 : 2 * 60 * 60 * 1000;
+  const lifetimeMs = event.phase === "possible" ? signalWindowMs : 2 * 60 * 60 * 1000;
   return now.getTime() >= start.getTime() + lifetimeMs;
 }
 
@@ -216,6 +252,12 @@ export class ResetState {
     const event: ResetEvent = {
       phase: classification.phase,
       expectedAt: classification.expectedAt ? new Date(classification.expectedAt) : null,
+      estimatedWindowStart: classification.estimatedWindowStart
+        ? new Date(classification.estimatedWindowStart)
+        : null,
+      estimatedWindowEnd: classification.estimatedWindowEnd
+        ? new Date(classification.estimatedWindowEnd)
+        : null,
       summary: classification.summary,
       resetLikelihood: classification.resetLikelihood,
       confidence: classification.confidence,
@@ -246,6 +288,8 @@ export class ResetState {
         status: "none",
         summary: "No reset expected",
         expectedAt: null,
+        estimatedWindowStart: null,
+        estimatedWindowEnd: null,
         tweetId: null,
         tweetText: null,
         tweetCreatedAt: null,
@@ -260,6 +304,8 @@ export class ResetState {
       status: current.phase,
       summary: current.summary,
       expectedAt: current.expectedAt?.toISOString() ?? null,
+      estimatedWindowStart: current.estimatedWindowStart?.toISOString() ?? null,
+      estimatedWindowEnd: current.estimatedWindowEnd?.toISOString() ?? null,
       tweetId: current.post.id,
       tweetText: postText(current.post),
       tweetCreatedAt: current.createdAt.toISOString(),

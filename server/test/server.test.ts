@@ -35,6 +35,8 @@ function classification(
     relevant: true,
     phase,
     expectedAt: phase === "scheduled" ? "2026-08-27T19:00:00Z" : null,
+    estimatedWindowStart: null,
+    estimatedWindowEnd: null,
     summary: "Reset status changed",
     resetLikelihood: phase === "announced" || phase === "none" ? 0 : 80,
     confidence: 0.9,
@@ -68,6 +70,8 @@ test("strict classification parsing accepts the schema and rejects bad invariant
     relevant: true,
     phase: "scheduled",
     expectedAt: "2026-08-27T19:00:00Z",
+    estimatedWindowStart: null,
+    estimatedWindowEnd: null,
     summary: "Reset expected within the hour",
     resetLikelihood: 98,
     confidence: 0.94,
@@ -78,6 +82,27 @@ test("strict classification parsing accepts the schema and rejects bad invariant
   assert.throws(
     () => parseClassification({ ...valid, expectedAt: null }),
     /needs a UTC expectedAt/,
+  );
+
+  const windowed = parseClassification({
+    ...valid,
+    phase: "possible",
+    expectedAt: null,
+    estimatedWindowStart: "2026-08-28T15:00:00Z",
+    estimatedWindowEnd: "2026-08-28T23:00:00Z",
+  });
+  assert.equal(windowed.estimatedWindowStart, "2026-08-28T15:00:00Z");
+  assert.throws(
+    () => parseClassification({ ...windowed, estimatedWindowEnd: null }),
+    /needs both start and end/,
+  );
+  assert.throws(
+    () => parseClassification({ ...windowed, estimatedWindowEnd: "2026-08-28T14:00:00Z" }),
+    /estimated window is invalid/,
+  );
+  assert.throws(
+    () => parseClassification({ ...windowed, phase: "announced" }),
+    /Only a possible classification/,
   );
   assert.throws(
     () => parseClassification({ ...valid, relevant: false }),
@@ -114,6 +139,8 @@ test("events expire at the specified boundaries", () => {
   const possible: ResetEvent = {
     phase: "possible",
     expectedAt: null,
+    estimatedWindowStart: null,
+    estimatedWindowEnd: null,
     summary: "Maybe tonight",
     resetLikelihood: 75,
     confidence: 0.8,
@@ -127,8 +154,8 @@ test("events expire at the specified boundaries", () => {
     expectedAt: new Date("2026-08-27T19:00:00Z"),
   };
 
-  assert.equal(isExpired(possible, new Date("2026-08-29T17:59:59.999Z")), false);
-  assert.equal(isExpired(possible, new Date("2026-08-29T18:00:00Z")), true);
+  assert.equal(isExpired(possible, new Date("2026-08-30T17:59:59.999Z")), false);
+  assert.equal(isExpired(possible, new Date("2026-08-30T18:00:00Z")), true);
   assert.equal(isExpired(announced, new Date("2026-08-27T20:00:00Z")), true);
   assert.equal(isExpired(scheduled, new Date("2026-08-27T20:59:59.999Z")), false);
   assert.equal(isExpired(scheduled, new Date("2026-08-27T21:00:00Z")), true);
@@ -174,20 +201,27 @@ test("duplicate, equal, older, and irrelevant posts do not replace current state
   assert.equal(state.status(baseTime).status, "possible");
 });
 
-test("state keeps the strongest possible signal in a rolling 48-hour window", () => {
+test("state keeps the strongest possible signal and its estimate in a rolling 72-hour window", () => {
   const state = new ResetState("thsottiaux");
-  state.apply(post("210", "Strong Codex reset hint"), classification("possible", { resetLikelihood: 80 }), baseTime);
+  state.apply(post("210", "Strong Codex reset hint"), classification("possible", {
+    resetLikelihood: 80,
+    estimatedWindowStart: "2026-08-28T15:00:00Z",
+    estimatedWindowEnd: "2026-08-28T23:00:00Z",
+  }), baseTime);
   state.apply(
     post("211", "Weak Codex reset hint", "2026-08-27T19:00:00Z"),
     classification("possible", { resetLikelihood: 30 }),
     new Date("2026-08-27T19:00:00Z"),
   );
-  state.markChecked(new Date("2026-08-29T17:00:00Z"));
+  state.markChecked(new Date("2026-08-30T17:00:00Z"));
 
-  assert.equal(state.status(new Date("2026-08-29T17:00:00Z")).tweetId, "210");
-  assert.equal(state.status(new Date("2026-08-29T17:00:00Z")).resetLikelihood, 80);
-  assert.equal(state.status(new Date("2026-08-29T18:00:00Z")).tweetId, "211");
-  assert.equal(state.status(new Date("2026-08-29T19:00:00Z")).status, "none");
+  const strongest = state.status(new Date("2026-08-30T17:00:00Z"));
+  assert.equal(strongest.tweetId, "210");
+  assert.equal(strongest.resetLikelihood, 80);
+  assert.equal(strongest.estimatedWindowStart, "2026-08-28T15:00:00.000Z");
+  assert.equal(strongest.estimatedWindowEnd, "2026-08-28T23:00:00.000Z");
+  assert.equal(state.status(new Date("2026-08-30T18:00:00Z")).tweetId, "211");
+  assert.equal(state.status(new Date("2026-08-30T19:00:00Z")).status, "none");
 });
 
 test("X client includes context, excludes reposts, and paginates since_id catch-up", async () => {
@@ -272,6 +306,8 @@ test("OpenRouter classifier requests strict structured output through a mocked f
             relevant: true,
             phase: "possible",
             expectedAt: null,
+            estimatedWindowStart: "2026-08-28T15:00:00Z",
+            estimatedWindowEnd: "2026-08-28T23:00:00Z",
             summary: "Reset may happen tonight",
             resetLikelihood: 82,
             confidence: 0.82,
@@ -285,6 +321,7 @@ test("OpenRouter classifier requests strict structured output through a mocked f
   const result = await classifier.classify(post("400", "Codex usage reset may happen tonight"), [], baseTime);
   assert.equal(result.phase, "possible");
   assert.equal(result.resetLikelihood, 82);
+  assert.equal(result.estimatedWindowStart, "2026-08-28T15:00:00Z");
   assert.equal(requestBody?.max_tokens, 1_000);
   assert.equal("temperature" in (requestBody ?? {}), false);
   assert.deepEqual(requestBody?.provider, { require_parameters: true });
@@ -293,9 +330,12 @@ test("OpenRouter classifier requests strict structured output through a mocked f
     true,
   );
   assert.match(JSON.stringify(requestBody?.messages), /never from observedAt/);
-  assert.match(JSON.stringify(requestBody?.messages), /next 24 hours/);
+  assert.match(JSON.stringify(requestBody?.messages), /next 72 hours/);
   assert.match(JSON.stringify(requestBody?.messages), /already applied/);
   assert.match(JSON.stringify(requestBody?.messages), /milestones/);
+  assert.match(JSON.stringify(requestBody?.messages), /America\/Los_Angeles/);
+  assert.match(JSON.stringify(requestBody?.messages), /08:00 through 16:00/);
+  assert.match(JSON.stringify(requestBody?.messages), /not today/);
 });
 
 test("monitor classifies a duplicate post only once", async () => {
@@ -459,6 +499,8 @@ test("health and status endpoints return no-store JSON", async () => {
       status: "none",
       summary: "No reset expected",
       expectedAt: null,
+      estimatedWindowStart: null,
+      estimatedWindowEnd: null,
       tweetId: null,
       tweetText: null,
       tweetCreatedAt: null,

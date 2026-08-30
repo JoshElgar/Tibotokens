@@ -13,7 +13,7 @@ private enum ResetPhase: String, Decodable {
         switch self {
         case .none: "No reset expected"
         case .possible: "Reset might be coming"
-        case .scheduled: "Reset in approximately 45 minutes"
+        case .scheduled: "Reset scheduled"
         case .announced: "Reset announced"
         }
     }
@@ -22,7 +22,7 @@ private enum ResetPhase: String, Decodable {
         switch self {
         case .none: nil
         case .possible: "Reset?"
-        case .scheduled: "Reset ~45m"
+        case .scheduled: "Reset soon"
         case .announced: "Reset"
         }
     }
@@ -33,6 +33,9 @@ private enum ResetPhase: String, Decodable {
 private struct StatusResponse: Decodable {
     let status: ResetPhase
     let summary: String
+    let expectedAt: String?
+    let estimatedWindowStart: String?
+    let estimatedWindowEnd: String?
     let tweetId: String?
     let tweetText: String?
     let tweetCreatedAt: String?
@@ -95,6 +98,23 @@ private final class StatusModel: ObservableObject {
         let absolute = Self.utcPostDateFormatter.string(from: date)
         let relative = Self.relativeDateFormatter.localizedString(for: date, relativeTo: now)
         return "\(absolute) (UTC) - \(relative)"
+    }
+
+    var estimatedResetText: String? {
+        if let rawDate = response?.expectedAt,
+           let date = Self.parseDate(rawDate) {
+            return "Expected reset — \(Self.sanFranciscoDateTimeFormatter.string(from: date)) SF time"
+        }
+        guard let rawStart = response?.estimatedWindowStart,
+              let rawEnd = response?.estimatedWindowEnd,
+              let start = Self.parseDate(rawStart),
+              let end = Self.parseDate(rawEnd),
+              end > start
+        else { return nil }
+        let endText = Self.sanFranciscoCalendar.isDate(start, inSameDayAs: end)
+            ? Self.sanFranciscoTimeFormatter.string(from: end)
+            : Self.sanFranciscoDateTimeFormatter.string(from: end)
+        return "Estimated reset window — \(Self.sanFranciscoDateTimeFormatter.string(from: start))–\(endText) SF time"
     }
 
     func start() {
@@ -244,6 +264,28 @@ private final class StatusModel: ObservableObject {
         formatter.dateFormat = "dd/MM h:mma"
         return formatter
     }()
+
+    private static let sanFranciscoCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        return calendar
+    }()
+
+    private static let sanFranciscoDateTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "America/Los_Angeles")
+        formatter.dateFormat = "dd/MM h:mma"
+        return formatter
+    }()
+
+    private static let sanFranciscoTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "America/Los_Angeles")
+        formatter.dateFormat = "h:mma"
+        return formatter
+    }()
 }
 
 private struct MenuBarLabel: View {
@@ -298,6 +340,10 @@ private struct MenuContent: View {
     var body: some View {
         Text("Reset likelihood soon — \(model.resetLikelihood)%")
             .monospacedDigit()
+        if let estimate = model.estimatedResetText {
+            Text(estimate)
+                .monospacedDigit()
+        }
         Divider()
         TimelineView(.periodic(from: .now, by: 1)) { context in
             Text("Tibo’s reset posts — \(model.lastCheckedText(relativeTo: context.date))")

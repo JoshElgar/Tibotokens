@@ -30,4 +30,4 @@ TIBOTOKENS_STATUS_URL=https://SERVICE.onrender.com/status \
 mac/build_app.sh
 ```
 
-The server watches `thsottiaux`, catches up on the previous three days after a restart, and polls every two hours except from 1:00–7:00 a.m. San Francisco time. It keeps the strongest relevant signal from a rolling 72-hour window, estimates a San Francisco reset window when a post gives a timing clue, and uses `openai/gpt-5.6-sol`. Run `npm test` from `server` for its mocked test suite.
+The server watches `thsottiaux`, restores its state from the 1 GB Render disk, then checks the previous three days for anything missed. It polls every two hours except from 1:00–7:00 a.m. San Francisco time, keeps the strongest signal from a rolling 72-hour window, estimates a San Francisco reset window when a post gives a timing clue, and uses `openai/gpt-5.6-sol`. Run `npm test` from `server` for its mocked test suite.

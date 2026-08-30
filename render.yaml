@@ -10,6 +10,10 @@ services:
     healthCheckPath: /health
     numInstances: 1
     autoDeployTrigger: commit
+    disk:
+      name: tibotokens-state
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: X_BEARER_TOKEN
         sync: false

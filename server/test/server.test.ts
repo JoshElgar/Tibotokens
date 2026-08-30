@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
@@ -8,7 +11,9 @@ import {
   XClient,
   createStatusServer,
   isSanFranciscoQuietHour,
+  loadStateSnapshot,
   loadConfig,
+  saveStateSnapshot,
   type TimelineItem,
 } from "../src/index.js";
 import {
@@ -54,6 +59,12 @@ test("config requires only secrets and keeps public settings in code", () => {
   assert.equal(config.openRouterModel, "openai/gpt-5.6-sol");
   assert.equal(config.pollIntervalMs, 7_200_000);
   assert.equal(config.port, 3000);
+  assert.equal(config.stateFilePath, null);
+  assert.equal(loadConfig({
+    X_BEARER_TOKEN: "x-token",
+    OPENROUTER_API_KEY: "openrouter-key",
+    RENDER: "true",
+  }).stateFilePath, "/var/data/tibotokens-state.json");
 });
 
 test("quiet hours follow San Francisco local time across daylight saving", () => {
@@ -222,6 +233,43 @@ test("state keeps the strongest possible signal and its estimate in a rolling 72
   assert.equal(strongest.estimatedWindowEnd, "2026-08-28T23:00:00.000Z");
   assert.equal(state.status(new Date("2026-08-30T18:00:00Z")).tweetId, "211");
   assert.equal(state.status(new Date("2026-08-30T19:00:00Z")).status, "none");
+});
+
+test("state survives an atomic disk snapshot and rejects corrupt state", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "tibotokens-state-"));
+  const stateFile = join(directory, "state.json");
+  try {
+    const state = new ResetState("thsottiaux");
+    state.apply(post("220", "Strong Codex reset hint"), classification("possible", {
+      resetLikelihood: 85,
+      estimatedWindowStart: "2026-08-28T15:00:00Z",
+      estimatedWindowEnd: "2026-08-28T23:00:00Z",
+    }), baseTime);
+    state.apply(
+      post("221", "Weak Codex reset hint", "2026-08-27T19:00:00Z"),
+      classification("possible", { resetLikelihood: 30 }),
+      new Date("2026-08-27T19:00:00Z"),
+    );
+    state.apply(
+      post("222", "Unrelated post"),
+      classification("none", { relevant: false, summary: "Not relevant" }),
+      baseTime,
+    );
+    state.markChecked(baseTime);
+
+    await saveStateSnapshot(stateFile, state);
+    const restored = await loadStateSnapshot(stateFile, "thsottiaux");
+    assert.ok(restored);
+    assert.equal(restored.sinceId, "222");
+    assert.equal(restored.status(baseTime).tweetId, "220");
+    assert.equal(restored.status(new Date("2026-08-30T18:00:00Z")).tweetId, "221");
+    assert.equal(await loadStateSnapshot(join(directory, "missing.json"), "thsottiaux"), null);
+
+    await writeFile(stateFile, "{}\n", "utf8");
+    await assert.rejects(loadStateSnapshot(stateFile, "thsottiaux"), /State snapshot is invalid/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("X client includes context, excludes reposts, and paginates since_id catch-up", async () => {

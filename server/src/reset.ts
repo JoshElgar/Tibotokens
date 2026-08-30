@@ -198,6 +198,68 @@ function postDate(post: XPost, fallback: Date): Date {
   return fallback;
 }
 
+function parseStoredDate(value: unknown, name: string): Date | null {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "string" || !isValidUtcDate(value)) {
+    throw new Error(`State snapshot ${name} is invalid`);
+  }
+  return new Date(value);
+}
+
+function parseStoredId(value: unknown, name: string): string | null {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "string" || !isSnowflake(value)) {
+    throw new Error(`State snapshot ${name} is invalid`);
+  }
+  return value;
+}
+
+function parseStoredEvent(value: unknown): ResetEvent {
+  if (!isRecord(value)) {
+    throw new Error("State snapshot event is invalid");
+  }
+  const classification = parseClassification({
+    relevant: true,
+    phase: value.phase,
+    expectedAt: value.expectedAt,
+    estimatedWindowStart: value.estimatedWindowStart,
+    estimatedWindowEnd: value.estimatedWindowEnd,
+    summary: value.summary,
+    resetLikelihood: value.resetLikelihood,
+    confidence: value.confidence,
+  });
+  if (classification.phase === "none") {
+    throw new Error("State snapshot event phase is invalid");
+  }
+  if (typeof value.postId !== "string" || !isSnowflake(value.postId)
+    || typeof value.postText !== "string" || value.postText.trim().length === 0) {
+    throw new Error("State snapshot post is invalid");
+  }
+  const createdAt = parseStoredDate(value.createdAt, "event createdAt");
+  if (!createdAt) {
+    throw new Error("State snapshot event createdAt is invalid");
+  }
+  return {
+    phase: classification.phase,
+    expectedAt: classification.expectedAt ? new Date(classification.expectedAt) : null,
+    estimatedWindowStart: classification.estimatedWindowStart
+      ? new Date(classification.estimatedWindowStart)
+      : null,
+    estimatedWindowEnd: classification.estimatedWindowEnd
+      ? new Date(classification.estimatedWindowEnd)
+      : null,
+    summary: classification.summary,
+    resetLikelihood: classification.resetLikelihood,
+    confidence: classification.confidence,
+    post: { id: value.postId, text: value.postText },
+    createdAt,
+  };
+}
+
 export class ResetState {
   private events: ResetEvent[] = [];
   private latestProcessedId: string | null = null;
@@ -207,6 +269,50 @@ export class ResetState {
 
   constructor(username: string) {
     this.username = username.replace(/^@/, "");
+  }
+
+  static fromSnapshot(username: string, value: unknown): ResetState {
+    if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.events)
+      || value.events.length > 1_000) {
+      throw new Error("State snapshot is invalid");
+    }
+    const latestProcessedId = parseStoredId(value.latestProcessedId, "latestProcessedId");
+    const latestDecisionId = parseStoredId(value.latestDecisionId, "latestDecisionId");
+    if (latestDecisionId && (!latestProcessedId || BigInt(latestDecisionId) > BigInt(latestProcessedId))) {
+      throw new Error("State snapshot IDs are invalid");
+    }
+    const events = value.events.map(parseStoredEvent);
+    if (events.some((event) => !latestDecisionId || BigInt(event.post.id) > BigInt(latestDecisionId))) {
+      throw new Error("State snapshot events are invalid");
+    }
+
+    const state = new ResetState(username);
+    state.events = events;
+    state.latestProcessedId = latestProcessedId;
+    state.latestDecisionId = latestDecisionId;
+    state.lastCheckedAt = parseStoredDate(value.lastCheckedAt, "lastCheckedAt");
+    return state;
+  }
+
+  snapshot() {
+    return {
+      version: 1,
+      events: this.events.map((event) => ({
+        phase: event.phase,
+        expectedAt: event.expectedAt?.toISOString() ?? null,
+        estimatedWindowStart: event.estimatedWindowStart?.toISOString() ?? null,
+        estimatedWindowEnd: event.estimatedWindowEnd?.toISOString() ?? null,
+        summary: event.summary,
+        resetLikelihood: event.resetLikelihood,
+        confidence: event.confidence,
+        postId: event.post.id,
+        postText: postText(event.post),
+        createdAt: event.createdAt.toISOString(),
+      })),
+      latestProcessedId: this.latestProcessedId,
+      latestDecisionId: this.latestDecisionId,
+      lastCheckedAt: this.lastCheckedAt?.toISOString() ?? null,
+    };
   }
 
   get sinceId(): string | null {

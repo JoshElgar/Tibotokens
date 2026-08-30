@@ -1,3 +1,4 @@
+import { readFile, rename, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer, type Server } from "node:http";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -412,11 +413,13 @@ export interface Config {
   openRouterModel: string;
   pollIntervalMs: number;
   port: number;
+  stateFilePath: string | null;
 }
 
 const xUsername = "thsottiaux";
 const openRouterModel = "openai/gpt-5.6-sol";
 const pollIntervalMs = 2 * 60 * 60 * 1000;
+const renderStateFilePath = "/var/data/tibotokens-state.json";
 const sanFranciscoHour = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/Los_Angeles",
   hour: "numeric",
@@ -448,11 +451,58 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     openRouterModel,
     pollIntervalMs,
     port,
+    stateFilePath: env.RENDER === "true" ? renderStateFilePath : null,
   };
 }
 
+export async function loadStateSnapshot(path: string, username: string): Promise<ResetState | null> {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+  try {
+    return ResetState.fromSnapshot(username, JSON.parse(raw) as unknown);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "invalid state";
+    throw new InvalidStateSnapshotError(message);
+  }
+}
+
+class InvalidStateSnapshotError extends Error {}
+
+export async function saveStateSnapshot(path: string, state: ResetState): Promise<void> {
+  const temporaryPath = `${path}.tmp`;
+  await writeFile(temporaryPath, `${JSON.stringify(state.snapshot())}\n`, {
+    encoding: "utf8",
+    flush: true,
+    mode: 0o600,
+  });
+  await rename(temporaryPath, path);
+}
+
 export async function start(config = loadConfig()): Promise<void> {
-  const state = new ResetState(config.xUsername);
+  let state = new ResetState(config.xUsername);
+  let caughtUp = false;
+  if (config.stateFilePath) {
+    try {
+      const restored = await loadStateSnapshot(config.stateFilePath, config.xUsername);
+      if (restored) {
+        state = restored;
+        console.log("Restored state from persistent disk");
+      }
+    } catch (error) {
+      if (!(error instanceof InvalidStateSnapshotError)) {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : "Unknown state error";
+      console.error(`Saved state ignored: ${message}`);
+    }
+  }
   const monitor = new ResetMonitor(
     new XClient(config.xBearerToken, config.xUsername),
     new OpenRouterClassifier(config.openRouterApiKey, config.openRouterModel),
@@ -460,7 +510,6 @@ export async function start(config = loadConfig()): Promise<void> {
   );
   let timer: NodeJS.Timeout | undefined;
   let stopped = false;
-  let caughtUp = false;
   const runPoll = async (): Promise<void> => {
     timer = undefined;
     try {
@@ -472,6 +521,14 @@ export async function start(config = loadConfig()): Promise<void> {
       await monitor.poll(startTime);
       caughtUp = true;
       const current = state.status();
+      if (config.stateFilePath) {
+        try {
+          await saveStateSnapshot(config.stateFilePath, state);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unknown state error";
+          console.error(`State save failed: ${message}`);
+        }
+      }
       console.log(`Poll complete: ${current.status} at ${current.checkedAt}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown polling error";
